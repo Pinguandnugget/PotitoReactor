@@ -1,0 +1,13 @@
+name: PotitoReactor
+version: 1.0.0
+main: pe.potitosafio.reactor.PotitoReactor
+api-version: '1.21'
+author: PotitoSafio
+commands:
+  preactor:
+    description: Controla los reactores del evento
+    usage: /preactor <crear|quitar|lista|iniciar|detener|boss|estado>
+    permission: potitoreactor.admin
+permissions:
+  potitoreactor.admin:
+    default: op
