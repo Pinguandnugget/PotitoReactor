@@ -11,6 +11,7 @@ import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -37,6 +38,8 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
     private boolean running;
     private int time;
     private int mutations;
+    private final Map<UUID, Integer> bossMutationLevels = new HashMap<>();
+    private int elapsedSeconds;
     private int cycleErrors;
     private int cycleProgress;
     private String status = "ESPERA";
@@ -66,13 +69,29 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
                 }
             }
         }, 12L, 12L);
+        // Reactor visible: partículas alrededor del bloque físico registrado.
+        getServer().getScheduler().runTaskTimer(this, () -> {
+            if (!running || active == null) return;
+            Location core = active.clone().add(0.5, 1.25, 0.5);
+            World w = core.getWorld();
+            if (w == null) return;
+            w.spawnParticle(time <= 10 ? Particle.FLAME : Particle.END_ROD, core,
+                    time <= 10 ? 9 : 3, 0.35, 0.35, 0.35, 0.01);
+            if (time <= 5) w.spawnParticle(Particle.SMOKE, core, 5, 0.30, 0.5, 0.30, 0.01);
+        }, 10L, 10L);
         getServer().getScheduler().runTaskTimer(this, () -> {
             if (!running) return;
+            elapsedSeconds++;
             time--;
             if (time <= 0) fail(false, null);
-            else { if (time <= 10 && time > 0) beep(); refreshBoards(); }
+            else {
+                if (time == 10) announce("&6ALERTA: &eQuedan 10 segundos para estabilizar el núcleo.");
+                if (time == 5) announce("&cFUSIÓN INMINENTE: &f5 segundos para la detonación.");
+                if (time <= 10 && time > 0) beep();
+                refreshBoards();
+            }
         }, 20L, 20L);
-        getLogger().info("PotitoReactor v1.3 activo. Compatible por API Bukkit/Paper 1.21.1; probar en Arclight.");
+        getLogger().info("PotitoReactor v2.0 activo. Compatible por API Bukkit/Paper 1.21.1; probar en Arclight.");
     }
 
     @Override public void onDisable() {
@@ -113,6 +132,7 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
                 p.sendMessage(c("&cMira directamente al Tremorzilla dentro de 60 bloques.")); return true;
             }
             bossId = entity.getUniqueId();
+            mutations = bossMutationLevels.getOrDefault(bossId, 0);
             p.sendMessage(c("&aJefe vinculado: &f" + entity.getType() + " &7(" + bossId + ")"));
             return true;
         }
@@ -148,7 +168,8 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         active = l.clone();
         running = true;
         operator = null;
-        mutations = 0;
+        mutations = bossId == null ? 0 : bossMutationLevels.getOrDefault(bossId, 0);
+        elapsedSeconds = 0;
         cycleErrors = 0;
         cycleProgress = 0;
         time = getConfig().getInt("puzzle.seconds", 30);
@@ -202,7 +223,7 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         return active != null && p.getWorld().equals(active.getWorld()) && p.getLocation().distanceSquared(active) <= r*r;
     }
     @EventHandler(ignoreCancelled = true) public void onInteract(PlayerInteractEvent e) {
-        if (e.getAction() != Action.RIGHT_CLICK_BLOCK || e.getClickedBlock() == null) return;
+        if (e.getHand() != EquipmentSlot.HAND || e.getAction() != Action.RIGHT_CLICK_BLOCK || e.getClickedBlock() == null) return;
         if (!reactors.contains(key(e.getClickedBlock().getLocation()))) return;
         e.setCancelled(true);
         Player p = e.getPlayer();
@@ -431,50 +452,96 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
     }
     private void success(Player player) {
         announce("&aESTABILIZACIÓN COMPLETADA: &f" + player.getName() + " &aha restablecido los cinco circuitos.");
+        playSuccessEffects();
         LivingEntity boss = boss();
         if (boss != null) boss.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS,
                 getConfig().getInt("success.weakness-seconds",15)*20, 0));
         status="ESTABILIZADO";
         stop();
     }
+    private void playSuccessEffects() {
+        if (active == null) return;
+        Location center = active.clone().add(0.5, 1.0, 0.5);
+        center.getWorld().spawnParticle(Particle.HAPPY_VILLAGER, center, 35, 1, 1, 1, 0);
+        center.getWorld().playSound(center, Sound.BLOCK_BEACON_ACTIVATE, 1.5f, 1.4f);
+    }
+
     private void fail(boolean mistakes, Player culprit) {
-        if (!running) return;
+        if (!running || active == null) return;
         status = "DETONADO";
-        if (mistakes) announce("&cCORTOCIRCUITO NUCLEAR: &f" + (culprit == null ? "Un operador" : culprit.getName()) + " &cprovocó el fallo crítico.");
+        if (mistakes) announce("&cCORTOCIRCUITO NUCLEAR: &f" + (culprit == null ? "Un operador" : culprit.getName())
+                + " &cprovocó el fallo crítico.");
         else announce("&4FUSIÓN DEL NÚCLEO: &cEl tiempo de estabilización ha expirado.");
-        Location center = active.clone().add(0.5,1,0.5);
-        center.getWorld().spawnParticle(Particle.EXPLOSION, center, 5, 1.5,1.5,1.5, 0);
-        center.getWorld().playSound(center, Sound.ENTITY_GENERIC_EXPLODE, 2f, 0.6f);
-        LivingEntity b=boss();
+
+        Location blastCenter = active.clone().add(0.5, 1.0, 0.5);
+        List<Player> participants = new ArrayList<>();
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (nearby(p) && p.getGameMode() == GameMode.SURVIVAL) participants.add(p);
+        }
+        // Importante: cerrar ANTES de afectar jugadores; esto no debe disparar evacuaciones.
+        running = false;
+        operator = null;
+        closeAll();
+
+        blastCenter.getWorld().spawnParticle(Particle.EXPLOSION, blastCenter, 7, 2.0, 1.4, 2.0, 0);
+        blastCenter.getWorld().spawnParticle(Particle.FLAME, blastCenter, 100, 3.0, 2.0, 3.0, 0.06);
+        blastCenter.getWorld().playSound(blastCenter, Sound.ENTITY_GENERIC_EXPLODE, 2f, 0.6f);
+        // Sin World#createExplosion: nunca se rompen bloques por la detonación del plugin.
+        for (Player p : participants) applyNuclearBlast(p);
+
+        LivingEntity b = boss();
         if (b != null) {
-            if (mistakes) b.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH,
-                    getConfig().getInt("failure.strength-seconds",45)*20, 0));
-            else {
-                mutations = Math.min(3, mutations + 1);
-                int secs=getConfig().getInt("failure.mutation-seconds",3600);
-                b.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, secs*20, mutations>=3 ? 1 : 0));
-                if (mutations>=2) b.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH, secs*20, 0));
-                double healed=b.getHealth()+b.getMaxHealth()*getConfig().getDouble("failure.heal-boss-fraction", 0.10);
+            if (mistakes) {
+                b.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH,
+                        20 * Math.max(1, getConfig().getInt("failure.strength-seconds", 45)), 0));
+            } else {
+                mutations = Math.min(Math.max(1, getConfig().getInt("failure.max-mutations", 3)), mutations + 1);
+                bossMutationLevels.put(b.getUniqueId(), mutations);
+                int secs = Math.max(1, getConfig().getInt("failure.mutation-seconds", 3600));
+                b.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, secs * 20, mutations >= 3 ? 1 : 0));
+                if (mutations >= 2)
+                    b.addPotionEffect(new PotionEffect(PotionEffectType.STRENGTH, secs * 20, 0));
+                double healed = b.getHealth() + b.getMaxHealth() * getConfig().getDouble("failure.heal-boss-fraction", 0.10);
                 b.setHealth(Math.min(b.getMaxHealth(), healed));
             }
-        }
-        // Detener antes del daño: no convertir el daño de la detonación en una evacuación adicional.
-        running=false;
-        operator=null;
-        closeAll();
-        for (Player p : Bukkit.getOnlinePlayers()) if (nearby(p) && p.getGameMode()!=GameMode.CREATIVE && p.getGameMode()!=GameMode.SPECTATOR) {
-            boolean totem=(p.getInventory().getItemInMainHand().getType()==Material.TOTEM_OF_UNDYING ||
-                    p.getInventory().getItemInOffHand().getType()==Material.TOTEM_OF_UNDYING);
-            if (totem && getConfig().getBoolean("failure.consume-totem",true)) {
-                // Daño letal convencional: Minecraft activa el tótem si lo tiene equipado.
-                p.damage(1000.0);
-            } else p.damage(getConfig().getDouble("failure.damage-without-totem",14.0));
-        }
-        announce(mistakes ? "&6Descarga absorbida: &cTremorzilla obtuvo Fuerza I temporal." :
-                "&4MUTACIÓN NUCLEAR: &cTremorzilla absorbió el núcleo y recuperó energía.");
+        } else announce("&eNo hay jefe vinculado: se aplicó la detonación, pero no una mejora a Tremorzilla.");
+
+        if (mistakes) announce("&6DESCARGA NUCLEAR: &cTremorzilla ha recibido Fuerza I temporal.");
+        else announce("&4MUTACIÓN NUCLEAR " + mutations + ": &cTremorzilla absorbió la energía del reactor.");
         restoreBoards();
-        active=null;
+        active = null;
     }
+
+    /**
+     * Nunca usar daño letal de 1000 HP para consumir tótems: en servidores híbridos
+     * puede atravesar defensas y matar a los participantes. Consumimos exactamente
+     * una unidad en la mano equipada y mostramos animación + efectos de rescate.
+     * No simula un evento de resurrección vanilla; es una penalización personalizada.
+     */
+    private void applyNuclearBlast(Player p) {
+        if (getConfig().getBoolean("failure.consume-totem", true)) {
+            boolean off = p.getInventory().getItemInOffHand().getType() == Material.TOTEM_OF_UNDYING;
+            boolean main = p.getInventory().getItemInMainHand().getType() == Material.TOTEM_OF_UNDYING;
+            if (off || main) {
+                EquipmentSlot hand = off ? EquipmentSlot.OFF_HAND : EquipmentSlot.HAND;
+                ItemStack held = hand == EquipmentSlot.OFF_HAND
+                        ? p.getInventory().getItemInOffHand() : p.getInventory().getItemInMainHand();
+                ItemStack remaining = held.clone();
+                if (held.getAmount() > 1) remaining.setAmount(held.getAmount() - 1);
+                if (hand == EquipmentSlot.OFF_HAND) p.getInventory().setItemInOffHand(held.getAmount() <= 1 ? null : remaining);
+                else p.getInventory().setItemInMainHand(held.getAmount() <= 1 ? null : remaining);
+                p.playEffect(EntityEffect.TOTEM_RESURRECT);
+                p.addPotionEffect(new PotionEffect(PotionEffectType.REGENERATION, 20 * 25, 1));
+                p.addPotionEffect(new PotionEffect(PotionEffectType.ABSORPTION, 20 * 5, 1));
+                p.sendMessage(c("&c☢ La onda nuclear consumió uno de tus tótems."));
+                return;
+            }
+        }
+        // Quien no tenga tótem recibe el daño configurado; puede ser mortal.
+        p.damage(Math.max(0, getConfig().getDouble("failure.damage-without-totem", 14.0)));
+        p.sendMessage(c("&c☢ La onda nuclear te alcanzó sin protección de un tótem."));
+    }
+
     private LivingEntity boss() {
         if (bossId==null) return null;
         Entity e=Bukkit.getEntity(bossId);

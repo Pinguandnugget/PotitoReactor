@@ -1,19 +1,21 @@
+# PotitoReactor 2.0 — Protocolo Extinción
 puzzle:
   seconds: 30
   wrong-attempts: 3
-  cancel-damage: 4.0 # 4 HP efectivos = 2 corazones, acumulados por intento
-  show-damage-debug: true # Muestra avance en actionbar tras cada golpe
-  cables: 5 # Cinco circuitos por ronda
-  recent-layouts: [] # Historial automático de 12 combinaciones; no editar
+  cancel-damage: 4.0 # 2 corazones efectivos acumulados
+  show-damage-debug: false
+  cables: 5
+  recent-layouts: [] # Guardado automático
   require-active-event: true
 reactor:
-  player-radius: 65.0 # participantes afectados en torno al reactor
-  locations: [] # Se gestiona con /preactor crear
+  player-radius: 65.0 # Distancia de los participantes respecto al reactor
+  locations: [] # /preactor crear
 failure:
-  consume-totem: true # intento de activar UN totem mediante dano letal
-  damage-without-totem: 14.0 # 7 corazones, puede matar
-  strength-seconds: 45
+  consume-totem: true # Consume 1 tótem EQUIPADO (mano principal o secundaria)
+  damage-without-totem: 14.0 # 7 corazones base: puede matar si no llevan tótem
+  strength-seconds: 45 # 3 errores -> Fuerza I temporal
+  max-mutations: 3 # Tiempo agotado -> mutación persistente POR jefe vinculado
   mutation-seconds: 3600
   heal-boss-fraction: 0.10
 success:
-  weakness-seconds: 15 # debilidad temporal (no anula regeneracion nativa del mod)
+  weakness-seconds: 15 # Debilidad I sobre el jefe durante 15s
