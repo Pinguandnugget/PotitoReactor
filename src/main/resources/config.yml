@@ -1,7 +1,8 @@
 puzzle:
   seconds: 30
   wrong-attempts: 3
-  cancel-damage: 4.0 # 4 HP = 2 corazones, acumulados por intento
+  cancel-damage: 4.0 # 4 HP efectivos = 2 corazones, acumulados por intento
+  show-damage-debug: true # Muestra avance en actionbar tras cada golpe
   cables: 5 # v1 usa exactamente cinco
   require-active-event: true
 reactor:

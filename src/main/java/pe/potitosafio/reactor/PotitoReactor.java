@@ -52,7 +52,7 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
             if (time <= 0) fail(false, null);
             else { if (time <= 10 && time > 0) beep(); refreshBoards(); }
         }, 20L, 20L);
-        getLogger().info("PotitoReactor v1.0 activo. Compatible por API Bukkit/Paper 1.21.1; probar en Arclight.");
+        getLogger().info("PotitoReactor v1.1 activo. Compatible por API Bukkit/Paper 1.21.1; probar en Arclight.");
     }
 
     @Override public void onDisable() {
@@ -182,30 +182,39 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         it.setItemMeta(m);
         return it;
     }
+    // Los iconos usan CustomModelData sobre PAPER, sin reemplazar items normales.
+    private ItemStack icon(int model, String name, String... lore) {
+        ItemStack it = item(Material.PAPER, name, lore);
+        ItemMeta meta = it.getItemMeta();
+        meta.setCustomModelData(model);
+        it.setItemMeta(meta);
+        return it;
+    }
+
     private void build(Puzzle p) {
         Inventory inv = p.inventory;
-        ItemStack filler = item(Material.BLACK_STAINED_GLASS_PANE, "&8 ");
-        for (int i=0; i<54; i++) inv.setItem(i, filler);
-        for (int i=0; i<5; i++) {
+        ItemStack filler = icon(72100, "&8 ");
+        for (int i = 0; i < 54; i++) inv.setItem(i, filler);
+        for (int i = 0; i < 5; i++) {
             int color = p.order[i];
             boolean done = p.done[color];
-            inv.setItem(left[i], item(done ? Material.LIME_DYE : glass[color],
-                    done ? "&a✔ Circuito conectado" : colors[color] + "Cable " + (i+1),
+            inv.setItem(left[i], icon(done ? 72112 : (p.selected == color ? 72106 + color : 72101 + color),
+                    done ? "&a✔ Circuito conectado" : colors[color] + "Cable " + (i + 1),
                     done ? "&aCompletado" : "&7Haz clic para seleccionar este cable"));
         }
-        for (int i=0; i<5; i++) {
+        for (int i = 0; i < 5; i++) {
             int color = p.targets[i];
             boolean done = p.done[color];
-            inv.setItem(right[i], item(done ? Material.LIME_DYE : glass[color],
-                    done ? "&a✔ Terminal conectado" : colors[color] + "Terminal " + (i+1),
+            inv.setItem(right[i], icon(done ? 72112 : 72101 + color,
+                    done ? "&a✔ Terminal conectado" : colors[color] + "Terminal " + (i + 1),
                     done ? "&aCompletado" : "&7Selecciona un cable y después este terminal"));
         }
-        inv.setItem(4, item(Material.CLOCK, "&eTiempo: &f" + time + " s"));
-        inv.setItem(22, item(Material.REDSTONE, "&cErrores: &f" + p.errors + "/" + getConfig().getInt("puzzle.wrong-attempts",3)));
-        inv.setItem(31, item(Material.COMPARATOR, "&bCircuitos: &f" + p.progress + "/5"));
-        inv.setItem(49, item(Material.BARRIER, "&cSalir", "&7El avance se perderá; el tiempo sigue."));
-        if (p.selected >= 0) inv.setItem(13, item(Material.LEVER, "&eCable seleccionado: &f" + (p.selected + 1)));
-        else inv.setItem(13, item(Material.GRAY_DYE, "&7Selecciona un cable izquierdo"));
+        inv.setItem(4, icon(72113, "&eTiempo: &f" + time + " s"));
+        inv.setItem(22, icon(72114, "&cErrores: &f" + p.errors + "/" + getConfig().getInt("puzzle.wrong-attempts", 3)));
+        inv.setItem(31, icon(72115, "&bCircuitos: &f" + p.progress + "/5"));
+        inv.setItem(49, icon(72116, "&cSalir", "&7El avance se perderá; el tiempo sigue."));
+        if (p.selected >= 0) inv.setItem(13, icon(72117, "&eCable seleccionado: &f" + (p.selected + 1)));
+        else inv.setItem(13, icon(72118, "&7Selecciona un cable izquierdo"));
     }
     @EventHandler public void onClick(InventoryClickEvent e) {
         if (!(e.getWhoClicked() instanceof Player player)) return;
@@ -259,22 +268,49 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
             refreshBoards();
         }
     }
-    @EventHandler(ignoreCancelled = true) public void onDamage(EntityDamageEvent e) {
-        if (!(e.getEntity() instanceof Player p)) return;
+    // En Arclight otros mods/plugins pueden ajustar el daño después de nuestros listeners.
+    // MONITOR lee el daño final y el siguiente tick comprueba la pérdida real de vida/absorción.
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamage(EntityDamageEvent e) {
+        if (!(e.getEntity() instanceof Player p) || !running) return;
         Puzzle puzzle = sessions.get(p.getUniqueId());
-        if (puzzle == null || !running || e.getFinalDamage() <= 0) return;
-        puzzle.damage += e.getFinalDamage();
-        if (puzzle.damage >= getConfig().getDouble("puzzle.cancel-damage",4)) {
-            // Evacuar de la interfaz (no del mapa), sin reiniciar el temporizador global.
-            sessions.remove(p.getUniqueId());
-            operator = null;
-            cycleErrors = 0;
-            cycleProgress = 0;
-            status = "INTERRUMPIDO";
-            Bukkit.getScheduler().runTask(this, () -> p.closeInventory());
-            announce("&6OPERADOR COMPROMETIDO: &f" + p.getName() + " &eha sido evacuado del terminal. &c¡Procedimiento cancelado!");
-            refreshBoards();
-        }
+        if (puzzle == null) return;
+        double finalDamage = Math.max(0, e.getFinalDamage());
+        if (finalDamage <= 0) return;
+        puzzle.pendingDamage += finalDamage;
+        if (puzzle.damageCheckScheduled) return;
+        puzzle.damageCheckScheduled = true;
+        final double healthBefore = p.getHealth();
+        final double absorptionBefore = p.getAbsorptionAmount();
+        Bukkit.getScheduler().runTask(this, () -> {
+            puzzle.damageCheckScheduled = false;
+            if (!running || sessions.get(p.getUniqueId()) != puzzle) return;
+            double lost = Math.max(0, healthBefore - p.getHealth()) +
+                    Math.max(0, absorptionBefore - p.getAbsorptionAmount());
+            // No sumar dos veces el mismo golpe: usar la mayor medición.
+            double received = Math.max(puzzle.pendingDamage, lost);
+            puzzle.pendingDamage = 0;
+            puzzle.damage += received;
+            double threshold = getConfig().getDouble("puzzle.cancel-damage", 4.0);
+            if (puzzle.damage + 1.0E-6 >= threshold) {
+                evacuate(p, puzzle);
+            } else if (getConfig().getBoolean("puzzle.show-damage-debug", true)) {
+                p.sendMessage(c(String.format(java.util.Locale.ROOT,
+                    "&8[&a☢ &2Reactor&8] &cDaño acumulado: %.1f / %.1f HP", puzzle.damage, threshold)));
+            }
+        });
+    }
+    private void evacuate(Player p, Puzzle puzzle) {
+        if (sessions.get(p.getUniqueId()) != puzzle) return;
+        sessions.remove(p.getUniqueId());
+        if (p.getUniqueId().equals(operator)) operator = null;
+        cycleErrors = 0;
+        cycleProgress = 0;
+        status = "INTERRUMPIDO";
+        p.closeInventory();
+        announce("&6OPERADOR COMPROMETIDO: &f" + p.getName()
+                + " &eha sido evacuado del sistema de contención. &c¡Reinicien la secuencia!");
+        refreshBoards();
     }
     @EventHandler public void onQuit(PlayerQuitEvent e) {
         UUID id=e.getPlayer().getUniqueId();
@@ -395,6 +431,8 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         final boolean[] done=new boolean[5];
         int selected=-1, errors=0, progress=0;
         double damage=0;
+        double pendingDamage=0;
+        boolean damageCheckScheduled=false;
         Puzzle(Player p) {
             player=p.getUniqueId();
             inventory=Bukkit.createInventory(null,54,c("&2☢ &0REACTOR: RECONEXIÓN"));
