@@ -26,6 +26,11 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
     private final Map<UUID, Scoreboard> oldBoards = new HashMap<>();
     private final Map<UUID, Scoreboard> eventBoards = new HashMap<>();
     private final Random random = new Random();
+    // Una configuración por ronda: los operadores no pueden cambiar el puzzle cerrándolo.
+    private int[] cycleOrder = {0, 1, 2, 3, 4};
+    private int[] cycleTargets = {0, 1, 2, 3, 4};
+    private final Deque<String> recentLayouts = new ArrayDeque<>();
+    private static final int LAYOUT_HISTORY = 12;
     private Location active;
     private UUID operator;
     private UUID bossId;
@@ -44,6 +49,10 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
     @Override public void onEnable() {
         saveDefaultConfig();
         reactors.addAll(getConfig().getStringList("reactor.locations"));
+        for (String entry : getConfig().getStringList("puzzle.recent-layouts")) {
+            if (!entry.isBlank() && !recentLayouts.contains(entry)) recentLayouts.addLast(entry);
+        }
+        while (recentLayouts.size() > LAYOUT_HISTORY) recentLayouts.removeFirst();
         Objects.requireNonNull(getCommand("preactor")).setExecutor(this);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getScheduler().runTaskTimer(this, () -> {
@@ -132,10 +141,43 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         cycleErrors = 0;
         cycleProgress = 0;
         time = getConfig().getInt("puzzle.seconds", 30);
+        createRoundLayout();
         status = "INESTABLE";
         announce("&ePROTOCOLO DE CONTENCIÓN ACTIVADO. &f¡Estabilicen el reactor!");
         refreshBoards();
     }
+    // Baraja los extremos de modo independiente, descarta los últimos 12 patrones
+    // y evita una solución demasiado evidente con todos los pares enfrentados.
+    private void createRoundLayout() {
+        String signature;
+        int attempts = 0;
+        do {
+            cycleOrder = new int[] {0, 1, 2, 3, 4};
+            cycleTargets = new int[] {0, 1, 2, 3, 4};
+            shuffle(cycleOrder);
+            shuffle(cycleTargets);
+            signature = Arrays.toString(cycleOrder) + ":" + Arrays.toString(cycleTargets);
+            attempts++;
+        } while (attempts < 10000 && (recentLayouts.contains(signature) || alignedPairs() > 2));
+        recentLayouts.addLast(signature);
+        while (recentLayouts.size() > LAYOUT_HISTORY) recentLayouts.removeFirst();
+        getConfig().set("puzzle.recent-layouts", new ArrayList<>(recentLayouts));
+        saveConfig();
+    }
+
+    private int alignedPairs() {
+        int count = 0;
+        for (int i = 0; i < 5; i++) if (cycleOrder[i] == cycleTargets[i]) count++;
+        return count;
+    }
+
+    private void shuffle(int[] a) {
+        for (int i = a.length - 1; i > 0; i--) {
+            int j = random.nextInt(i + 1);
+            int tmp = a[i]; a[i] = a[j]; a[j] = tmp;
+        }
+    }
+
     private void stop() {
         running = false;
         operator = null;
@@ -426,8 +468,8 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
     private final class Puzzle {
         final UUID player;
         final Inventory inventory;
-        final int[] order={0,1,2,3,4};
-        final int[] targets={0,1,2,3,4};
+        final int[] order;
+        final int[] targets;
         final boolean[] done=new boolean[5];
         int selected=-1, errors=0, progress=0;
         double damage=0;
@@ -436,10 +478,8 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         Puzzle(Player p) {
             player=p.getUniqueId();
             inventory=Bukkit.createInventory(null,54,c("&2☢ &0REACTOR: RECONEXIÓN"));
-            shuffle(order); shuffle(targets);
-        }
-        private void shuffle(int[] a) {
-            for (int i=a.length-1;i>0;i--) {int j=random.nextInt(i+1); int tmp=a[i];a[i]=a[j];a[j]=tmp;}
+            order = cycleOrder.clone();
+            targets = cycleTargets.clone();
         }
     }
 }
