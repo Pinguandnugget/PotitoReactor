@@ -1,20 +1,21 @@
-# PotitoReactor v1.2.0 — variaciones de cables
+# PotitoReactor v1.3.0 — Cableado visual
 
-Actualización basada en la versión 1.1.0 del plugin.
+Plugin Java 21 / Paper API 1.21.1 diseñado para Arclight Fabric 1.21.1.
 
-- Cada `/preactor iniciar` genera un **nuevo diseño** con 5 terminales izquierdos y 5 derechos, mezclados independientemente.
-- No reutiliza ninguno de los **12 diseños anteriores** (historial guardado en `config.yml`).
-- Evita rondas demasiado fáciles: como máximo 2 cables quedan alineados horizontalmente.
-- Si el operador cierra el inventario, es evacuado o lo reemplaza otra persona **dentro de la misma ronda**, los cables mantienen el orden de esa ronda. Se pierde el progreso, no se puede 'rerollear' para buscar uno fácil.
-- El resto del comportamiento (scoreboard, daño, chat, ítems CustomModelData) se conserva.
+## Cambios frente a 1.2
+- Al conectar un circuito, se ilumina una línea de ese color entre los terminales.
+- El recorrido usa cinco columnas centrales con curvas y tramos verticales.
+- Si hay varios cables conectados, los recorridos se alternan cada 12 ticks (no se superponen).
+- El temporizador, cancelación por daño, mensajes, historial de combinaciones y demás lógica se conserva.
+- Indicadores de error/progreso movidos a la fila inferior y selección a esquina superior.
 
-## Compilación
-Subir el contenido de esta carpeta al repositorio, ejecutar Actions / Build o `gradle build --no-daemon` con JDK 21. El artefacto será `PotitoReactor-1.2.0.jar`.
+## Instalación
+1. Sube este proyecto a GitHub y ejecuta Actions para compilar `PotitoReactor-1.3.0.jar`.
+2. Sustituye el JAR anterior en plugins y reinicia el servidor.
+3. Activa el resource pack v1.3 suministrado **en lugar del pack de texturas PotitoReactor anterior**.
+4. Si usas un pack unificado, fusiona los archivos assets/potitoreactor y los overrides de paper.json.
+5. Prueba una conexión correcta; debe iluminarse una ruta sobre las casillas centrales.
 
-## Pruebas
-1. `/preactor iniciar`, apuntar a reactor y abrir GUI; recordar posiciones de los cinco colores en cada lado.
-2. Cerrar, reabrir: mismo orden, progreso 0/5.
-3. `/preactor detener`, luego `/preactor iniciar`: distinto orden.
-4. Probar más de 12 rondas: no deberían repetirse los últimos 12 patrones.
+Las líneas se representan como objetos de inventario, NO como gráficos libres encima de la GUI. Los recorridos de varios cables se alternan deliberadamente para que permanezcan distinguibles. No modifica las consecuencias de fallar un reactor.
 
-No incluye todavía el efecto gráfico de dibujar segmentos entre conectores: eso requiere una disposición adicional de las ranuras y nuevos modelos del resource pack.
+El código fuente no se ha compilado en este entorno; valida el resultado mediante GitHub Actions y en un mundo de pruebas.

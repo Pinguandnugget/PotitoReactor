@@ -55,13 +55,24 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         while (recentLayouts.size() > LAYOUT_HISTORY) recentLayouts.removeFirst();
         Objects.requireNonNull(getCommand("preactor")).setExecutor(this);
         getServer().getPluginManager().registerEvents(this, this);
+        // Un solo recorrido iluminado a la vez: alternamos los cables ya conectados
+        // para que sus curvas sean legibles incluso cuando los cinco están completos.
+        getServer().getScheduler().runTaskTimer(this, () -> {
+            if (!running) return;
+            for (Puzzle puzzle : new ArrayList<>(sessions.values())) {
+                if (puzzle.progress > 1) {
+                    puzzle.displayedWire++;
+                    build(puzzle);
+                }
+            }
+        }, 12L, 12L);
         getServer().getScheduler().runTaskTimer(this, () -> {
             if (!running) return;
             time--;
             if (time <= 0) fail(false, null);
             else { if (time <= 10 && time > 0) beep(); refreshBoards(); }
         }, 20L, 20L);
-        getLogger().info("PotitoReactor v1.1 activo. Compatible por API Bukkit/Paper 1.21.1; probar en Arclight.");
+        getLogger().info("PotitoReactor v1.3 activo. Compatible por API Bukkit/Paper 1.21.1; probar en Arclight.");
     }
 
     @Override public void onDisable() {
@@ -252,11 +263,52 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
                     done ? "&aCompletado" : "&7Selecciona un cable y después este terminal"));
         }
         inv.setItem(4, icon(72113, "&eTiempo: &f" + time + " s"));
-        inv.setItem(22, icon(72114, "&cErrores: &f" + p.errors + "/" + getConfig().getInt("puzzle.wrong-attempts", 3)));
-        inv.setItem(31, icon(72115, "&bCircuitos: &f" + p.progress + "/5"));
+        // El centro (columnas 2..6, filas 1..5) queda libre para los recorridos.
+        inv.setItem(48, icon(72114, "&cErrores: &f" + p.errors + "/" + getConfig().getInt("puzzle.wrong-attempts", 3)));
+        inv.setItem(50, icon(72115, "&bCircuitos: &f" + p.progress + "/5"));
         inv.setItem(49, icon(72116, "&cSalir", "&7El avance se perderá; el tiempo sigue."));
-        if (p.selected >= 0) inv.setItem(13, icon(72117, "&eCable seleccionado: &f" + (p.selected + 1)));
-        else inv.setItem(13, icon(72118, "&7Selecciona un cable izquierdo"));
+        if (p.selected >= 0) inv.setItem(0, icon(72117, "&eCable seleccionado: &f" + (p.selected + 1)));
+        else inv.setItem(0, icon(72118, "&7Selecciona un cable izquierdo"));
+        drawWiring(p);
+    }
+    // V1.3: ruta ortogonal visual por el panel central. Los extremos permanecen
+    // en las mismas casillas de siempre; las curvas del medio son sólo visuales.
+    // Los cinco circuitos completados se muestran alternándose, evitando que
+    // sus texturas se oculten mutuamente en intersecciones del inventario.
+    // IDs: 72200 + color*10 + tramo (0=H,1=V,2=L->D,3=L->U,4=U->R,5=D->R).
+    private void drawWiring(Puzzle p) {
+        if (p.progress == 0) return;
+        int color = -1;
+        int remaining = Math.floorMod(p.displayedWire, p.progress);
+        for (int c = 0; c < 5; c++) {
+            if (!p.done[c]) continue;
+            if (remaining-- == 0) { color = c; break; }
+        }
+        if (color < 0) return;
+        int start = indexOf(p.order, color) + 1;
+        int end = indexOf(p.targets, color) + 1;
+        if (start == 0 || end == 0) return;
+        // Las columnas 2 y 3 salen del conector izquierdo (columna 1).
+        for (int col = 2; col <= 3; col++) wireTile(p, start, col, color, 0);
+        // Las columnas 5 y 6 llegan al conector derecho (columna 7).
+        for (int col = 5; col <= 6; col++) wireTile(p, end, col, color, 0);
+        if (start == end) wireTile(p, start, 4, color, 0);
+        else {
+            wireTile(p, start, 4, color, start < end ? 2 : 3);
+            wireTile(p, end, 4, color, start < end ? 4 : 5);
+            for (int row = Math.min(start, end) + 1; row < Math.max(start, end); row++)
+                wireTile(p, row, 4, color, 1);
+        }
+    }
+    private int indexOf(int[] array, int value) {
+        for (int i = 0; i < array.length; i++) if (array[i] == value) return i;
+        return -1;
+    }
+    private void wireTile(Puzzle p, int row, int col, int color, int segment) {
+        p.inventory.setItem(row * 9 + col,
+            icon(72200 + color * 10 + segment,
+                colors[color] + "Circuito " + (color + 1) + " &8| &aConectado",
+                "&7Ruta luminosa del cable completado"));
     }
     @EventHandler public void onClick(InventoryClickEvent e) {
         if (!(e.getWhoClicked() instanceof Player player)) return;
@@ -276,6 +328,9 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
             if (p.selected == color) {
                 p.done[color] = true;
                 p.progress++;
+                p.displayedWire = 0;
+                for (int preceding = 0; preceding < color; preceding++)
+                    if (p.done[preceding]) p.displayedWire++;
                 cycleProgress = p.progress;
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 0.7f, 1.4f);
                 p.selected = -1;
@@ -471,7 +526,7 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         final int[] order;
         final int[] targets;
         final boolean[] done=new boolean[5];
-        int selected=-1, errors=0, progress=0;
+        int selected=-1, errors=0, progress=0, displayedWire=0;
         double damage=0;
         double pendingDamage=0;
         boolean damageCheckScheduled=false;
