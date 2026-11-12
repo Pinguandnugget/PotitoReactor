@@ -1,0 +1,116 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "minecraft:item/paper"
+  },
+  "overrides": [
+    {
+      "predicate": {
+        "custom_model_data": 72100
+      },
+      "model": "potitoreactor:item/panel"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72101
+      },
+      "model": "potitoreactor:item/wire_0"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72102
+      },
+      "model": "potitoreactor:item/wire_1"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72103
+      },
+      "model": "potitoreactor:item/wire_2"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72104
+      },
+      "model": "potitoreactor:item/wire_3"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72105
+      },
+      "model": "potitoreactor:item/wire_4"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72106
+      },
+      "model": "potitoreactor:item/selected_0"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72107
+      },
+      "model": "potitoreactor:item/selected_1"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72108
+      },
+      "model": "potitoreactor:item/selected_2"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72109
+      },
+      "model": "potitoreactor:item/selected_3"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72110
+      },
+      "model": "potitoreactor:item/selected_4"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72112
+      },
+      "model": "potitoreactor:item/connected"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72113
+      },
+      "model": "potitoreactor:item/clock"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72114
+      },
+      "model": "potitoreactor:item/error"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72115
+      },
+      "model": "potitoreactor:item/progress"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72116
+      },
+      "model": "potitoreactor:item/exit"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72117
+      },
+      "model": "potitoreactor:item/selected"
+    },
+    {
+      "predicate": {
+        "custom_model_data": 72118
+      },
+      "model": "potitoreactor:item/idle"
+    }
+  ]
+}
