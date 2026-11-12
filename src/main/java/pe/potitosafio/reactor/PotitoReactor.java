@@ -9,6 +9,7 @@ import org.bukkit.event.*;
 import org.bukkit.event.block.*;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.inventory.*;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.*;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -270,7 +271,7 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
             cycleErrors = 0;
             cycleProgress = 0;
             status = "INTERRUMPIDO";
-            Bukkit.getScheduler().runTask(this, p::closeInventory);
+            Bukkit.getScheduler().runTask(this, () -> p.closeInventory());
             announce("&6OPERADOR COMPROMETIDO: &f" + p.getName() + " &eha sido evacuado del terminal. &c¡Procedimiento cancelado!");
             refreshBoards();
         }
