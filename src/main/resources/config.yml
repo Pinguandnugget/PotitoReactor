@@ -19,3 +19,13 @@ failure:
   heal-boss-fraction: 0.10
 success:
   weakness-seconds: 15 # Debilidad I sobre el jefe durante 15s
+
+# Batalla con jefe vinculado (activar con /preactor batalla iniciar)
+battle:
+  phase-one-percent: 60.0
+  phase-two-percent: 25.0
+  round-cooldown-seconds: 12
+  damage-per-mutation: 0.12 # +12% de daño en golpes del jefe por mutación
+  short-circuit-damage-bonus: 0.20 # +20% durante el buff temporal
+  success-weaken-seconds: 15
+  success-damage-multiplier: 0.75 # el jefe causa 25% menos daño tras éxito

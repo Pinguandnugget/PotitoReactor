@@ -8,6 +8,7 @@ import org.bukkit.entity.*;
 import org.bukkit.event.*;
 import org.bukkit.event.block.*;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.inventory.*;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -38,6 +39,11 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
     private boolean running;
     private int time;
     private int mutations;
+    private boolean battleEnabled = false;
+    private final Set<Integer> battlePhasesTriggered = new HashSet<>();
+    private long nextAutoRoundTick = 0;
+    private long successDebuffExpires = 0;
+    private long shortCircuitExpires = 0;
     private final Map<UUID, Integer> bossMutationLevels = new HashMap<>();
     private int elapsedSeconds;
     private int cycleErrors;
@@ -79,6 +85,7 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
                     time <= 10 ? 9 : 3, 0.35, 0.35, 0.35, 0.01);
             if (time <= 5) w.spawnParticle(Particle.SMOKE, core, 5, 0.30, 0.5, 0.30, 0.01);
         }, 10L, 10L);
+        getServer().getScheduler().runTaskTimer(this, this::checkBossPhase, 20L, 20L);
         getServer().getScheduler().runTaskTimer(this, () -> {
             if (!running) return;
             elapsedSeconds++;
@@ -91,7 +98,7 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
                 refreshBoards();
             }
         }, 20L, 20L);
-        getLogger().info("PotitoReactor v2.0 activo. Compatible por API Bukkit/Paper 1.21.1; probar en Arclight.");
+        getLogger().info("PotitoReactor v2.1 activo. Compatible por API Bukkit/Paper 1.21.1; probar en Arclight.");
     }
 
     @Override public void onDisable() {
@@ -119,11 +126,30 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
 
     @Override public boolean onCommand(CommandSender s, Command command, String label, String[] args) {
         if (!s.hasPermission("potitoreactor.admin")) { s.sendMessage(c("&cSin permisos.")); return true; }
-        if (args.length == 0) { s.sendMessage(c("&e/preactor crear, quitar, lista, iniciar, detener, boss, estado")); return true; }
+        if (args.length == 0) { s.sendMessage(c("&e/preactor crear, quitar, lista, iniciar, detener, boss, batalla iniciar|detener|estado")); return true; }
         String action = args[0].toLowerCase(Locale.ROOT);
         if (action.equals("lista")) { s.sendMessage(c("&eReactores registrados: " + reactors.size())); reactors.forEach(s::sendMessage); return true; }
-        if (action.equals("estado")) { s.sendMessage(c("&eEvento: " + running + " &7| Tiempo: " + time + " | Operador: " + operator + " | Mutaciones: " + mutations)); return true; }
-        if (action.equals("detener")) { stop(); s.sendMessage(c("&aEvento detenido.")); return true; }
+        if (action.equals("estado")) { s.sendMessage(c("&eReactor: " + running + " &7| Tiempo: " + time + " | Operador: " + operator + " | Mutaciones: " + mutations + " | Batalla automática: " + battleEnabled + " | Fases: " + battlePhasesTriggered)); return true; }
+        if (action.equals("batalla")) {
+            String sub = args.length >= 2 ? args[1].toLowerCase(Locale.ROOT) : "estado";
+            if (sub.equals("detener")) { battleEnabled = false; s.sendMessage(c("&eActivación automática desactivada. El reactor en curso no se cancela.")); return true; }
+            if (sub.equals("estado")) { s.sendMessage(c("&eBatalla: " + battleEnabled + " &7| Fases usadas: " + battlePhasesTriggered + " | Jefe: " + (boss() != null ? boss().getType() : "sin vínculo"))); return true; }
+            if (sub.equals("iniciar")) {
+                if (battleEnabled) { s.sendMessage(c("&eLa batalla ya está monitoreándose.")); return true; }
+                LivingEntity targetBoss = boss();
+                if (targetBoss == null) { s.sendMessage(c("&cPrimero vincula al jefe con /preactor boss.")); return true; }
+                if (reactors.stream().noneMatch(k -> { Location l = fromKey(k); return l != null && l.getWorld().equals(targetBoss.getWorld()); })) {
+                    s.sendMessage(c("&cNo hay reactores registrados en el mundo del jefe.")); return true;
+                }
+                battlePhasesTriggered.clear();
+                nextAutoRoundTick = Bukkit.getCurrentTick() + 40L;
+                battleEnabled = true;
+                announce("&cPROTOCOLO EXTINCIÓN: &fmonitoreo de Tremorzilla activado. &eReactores al 60% y 25% de vida.");
+                return true;
+            }
+            s.sendMessage(c("&cUsa /preactor batalla iniciar|detener|estado")); return true;
+        }
+        if (action.equals("detener")) { battleEnabled = false; stop(); s.sendMessage(c("&aEvento y monitoreo automático detenidos.")); return true; }
         if (!(s instanceof Player p)) { s.sendMessage("Este comando requiere un jugador."); return true; }
         if (action.equals("boss")) {
             RayTraceResult hit = p.getWorld().rayTraceEntities(p.getEyeLocation(), p.getEyeLocation().getDirection(), 60.0,
@@ -131,7 +157,13 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
             if (hit == null || !(hit.getHitEntity() instanceof LivingEntity entity)) {
                 p.sendMessage(c("&cMira directamente al Tremorzilla dentro de 60 bloques.")); return true;
             }
+            if (running) { p.sendMessage(c("&cTermina la ronda antes de cambiar de jefe.")); return true; }
             bossId = entity.getUniqueId();
+            p.sendMessage(c("&eComprueba que el tipo y UUID indicados correspondan al Tremorzilla real."));
+            battleEnabled = false;
+            battlePhasesTriggered.clear();
+            successDebuffExpires = 0;
+            shortCircuitExpires = 0;
             mutations = bossMutationLevels.getOrDefault(bossId, 0);
             p.sendMessage(c("&aJefe vinculado: &f" + entity.getType() + " &7(" + bossId + ")"));
             return true;
@@ -161,6 +193,38 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         }
         p.sendMessage(c("&cAcción desconocida."));
         return true;
+    }
+
+    // El monitoreo no cambia invulnerabilidad ni el objeto que los jugadores destruyen.
+    // Se limita a abrir rondas de puzzle en umbrales de salud del jefe vinculado.
+    private void checkBossPhase() {
+        if (!battleEnabled || running || Bukkit.getCurrentTick() < nextAutoRoundTick) return;
+        LivingEntity b = boss();
+        if (b == null || b.isDead()) {
+            battleEnabled = false;
+            if (b == null) announce("&7El jefe ya no está disponible. Se desactivó el monitoreo nuclear.");
+            return;
+        }
+        double max = b.getMaxHealth();
+        if (max <= 0) return;
+        double percent = b.getHealth() / max * 100.0;
+        int phase = -1;
+        // Una ronda pendiente de 60% se dispara antes que la de 25%, incluso si baja de golpe.
+        if (percent <= getConfig().getDouble("battle.phase-one-percent", 60.0) && !battlePhasesTriggered.contains(1)) phase = 1;
+        else if (percent <= getConfig().getDouble("battle.phase-two-percent", 25.0) && !battlePhasesTriggered.contains(2)) phase = 2;
+        if (phase < 0) return;
+        Location nearest = null;
+        double distance = Double.MAX_VALUE;
+        for (String k : reactors) {
+            Location loc = fromKey(k);
+            if (loc == null || !loc.getWorld().equals(b.getWorld())) continue;
+            double d = loc.distanceSquared(b.getLocation());
+            if (d < distance) { distance = d; nearest = loc; }
+        }
+        if (nearest == null) { getLogger().warning("Sin reactor para la fase " + phase); return; }
+        battlePhasesTriggered.add(phase);
+        announce("&4☢ FASE " + phase + ": &cTremorzilla está sobrecargando el núcleo. &f¡Reparen el reactor!");
+        start(nearest);
     }
 
     private void start(Location l) {
@@ -456,8 +520,10 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
         LivingEntity boss = boss();
         if (boss != null) boss.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS,
                 getConfig().getInt("success.weakness-seconds",15)*20, 0));
+        successDebuffExpires = Bukkit.getCurrentTick() + 20L * Math.max(0, getConfig().getInt("battle.success-weaken-seconds", 15));
         status="ESTABILIZADO";
         stop();
+        nextAutoRoundTick = Bukkit.getCurrentTick() + 20L * Math.max(1, getConfig().getInt("battle.round-cooldown-seconds", 12));
     }
     private void playSuccessEffects() {
         if (active == null) return;
@@ -506,10 +572,33 @@ public final class PotitoReactor extends JavaPlugin implements Listener, Command
             }
         } else announce("&eNo hay jefe vinculado: se aplicó la detonación, pero no una mejora a Tremorzilla.");
 
+        if (b != null && mistakes) shortCircuitExpires = Bukkit.getCurrentTick() + 20L * Math.max(1, getConfig().getInt("failure.strength-seconds", 45));
         if (mistakes) announce("&6DESCARGA NUCLEAR: &cTremorzilla ha recibido Fuerza I temporal.");
         else announce("&4MUTACIÓN NUCLEAR " + mutations + ": &cTremorzilla absorbió la energía del reactor.");
         restoreBoards();
         active = null;
+        nextAutoRoundTick = Bukkit.getCurrentTick() + 20L * Math.max(1, getConfig().getInt("battle.round-cooldown-seconds", 12));
+    }
+
+    // Refuerzo fiable de golpes directos: no depende de que el mod respete Fuerza.
+    // Proyectiles personalizados de Alex's Caves pueden no exponer su dueño en Bukkit;
+    // esos ataques quedan fuera y se verifican por separado.
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBossAttack(EntityDamageByEntityEvent event) {
+        LivingEntity b = boss();
+        if (b == null || !(event.getEntity() instanceof Player victim) || !nearBattleBoss(victim, b)) return;
+        Entity damager = event.getDamager();
+        boolean direct = damager.getUniqueId().equals(b.getUniqueId());
+        boolean projectile = damager instanceof Projectile pr && pr.getShooter() instanceof Entity shooter
+                && shooter.getUniqueId().equals(b.getUniqueId());
+        if (!direct && !projectile) return;
+        double multiplier = 1.0 + mutations * getConfig().getDouble("battle.damage-per-mutation", 0.12);
+        if (Bukkit.getCurrentTick() < shortCircuitExpires) multiplier += getConfig().getDouble("battle.short-circuit-damage-bonus", 0.20);
+        if (Bukkit.getCurrentTick() < successDebuffExpires) multiplier *= getConfig().getDouble("battle.success-damage-multiplier", 0.75);
+        if (multiplier != 1.0) event.setDamage(Math.max(0, event.getDamage() * multiplier));
+    }
+    private boolean nearBattleBoss(Player victim, LivingEntity b) {
+        return victim.getWorld().equals(b.getWorld()) && victim.getLocation().distanceSquared(b.getLocation()) <= 10000;
     }
 
     /**

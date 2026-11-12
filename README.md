@@ -1,40 +1,36 @@
-# PotitoReactor v2.0 — Protocolo Extinción
+# PotitoReactor v2.1 — Mutaciones y batalla
 
-Plugin Bukkit/Paper API 1.21.1 (Java 21), pensado para pruebas en **Arclight + Fabric 1.21.1**.
+Basado en la v2.0 que pasó las seis pruebas del usuario. Se conservan la GUI, los cables animados, el manejo de tótems, la cancelación por daño, los mensajes y la explosión sin romper bloques.
 
-## Compilación
-Sube el contenido del ZIP a la raíz del repo GitHub. Actions -> Build PotitoReactor -> Run workflow. Descarga el artifact y extrae `PotitoReactor-2.0.0.jar`.
+## Novedades
+
+- `/preactor boss` mirando directamente al Tremorzilla (verifica el tipo mostrado; el plugin permite vincular cualquier entidad viva para pruebas).
+- `/preactor batalla iniciar`: activa un monitor de vida del jefe. Al llegar al **60 %** y luego al **25 %** se activa automáticamente una ronda con el reactor registrado más cercano en ese mundo.
+- `/preactor batalla detener`: desactiva los activadores automáticos; no cancela una ronda ya activa.
+- `/preactor batalla estado`: muestra estado y fases usadas.
+- `/preactor detener`: detiene ronda y automatización.
+- Los umbrales de fase se ejecutan **una vez por batalla**. Si se salta el 60% y llega al 25% de golpe, las rondas se procesan consecutivamente, no a la vez.
+- Cortocircuito (3 errores): un tótem por participante en supervivencia afectado, buff de Fuerza I y **+20 % de daño de ataques directos detectables por Bukkit durante 45 s**.
+- Tiempo agotado: un tótem por participante, curación del 10 % de vida máxima y una mutación acumulativa de hasta 3 niveles. +12 % de daño de ataques directos detectables por Bukkit por mutación; además, efectos de velocidad/fuerza originales.
+- Éxito: 15 s de Debilidad I y **25 % menos daño en ataques directos detectables por Bukkit**.
+- `battle.*` en config.yml permite ajustar umbrales, tiempos y multiplicadores.
+
+**Limitaciones técnicas importantes:** Alex's Caves puede generar daño personalizado sin `EntityDamageByEntityEvent` del jefe, por lo que los multiplicadores no cubren necesariamente el rayo, pisotones o proyectiles especiales. Los efectos de velocidad de poción podrían no acelerar la IA del mob. No se modifica el sistema de invulnerabilidad/objeto vulnerable existente; el plugin simplemente dispara fases de reactores.
 
 ## Instalación
-Sustituye el JAR anterior en `plugins/`, nunca mantengas varias versiones a la vez. Reinicia el servidor.
 
-## Texturas
-**Usa el mismo resource pack de PotitoReactor v1.3**. No han cambiado los IDs de modelos (`72100..`, `72200..`). Se incluye copia en el paquete de distribución. Este resource pack NO debe reemplazar directamente tu resource pack principal: fusiónalo antes si corresponde.
+1. Sustituye los archivos de tu repositorio GitHub por los de este ZIP, conservando `.github/workflows/build.yml`.
+2. Compila con Actions (Java 21, Gradle 8.14).
+3. Apaga HolyHosting, elimina el JAR anterior, coloca `PotitoReactor-2.1.0.jar` y reinicia.
+4. Mantén el resource pack de la v1.3: no se han modificado modelos.
 
-## Comandos
-- `/preactor crear` registra el bloque que estás mirando, como terminal físico de control.
-- `/preactor quitar` desregistra el bloque.
-- `/preactor lista` enumera los registrados.
-- `/preactor boss` vincula la entidad viva que estés mirando (comprueba que sea Tremorzilla).
-- `/preactor iniciar` inicia una ronda en el reactor registrado cercano.
-- `/preactor detener` detiene la ronda.
-- `/preactor estado` consulta tiempo, estado y mutaciones.
+## Prueba segura
 
-## Mecánicas
-- Una ronda: 30 s, cinco cables, hasta tres conexiones incorrectas.
-- Las combinaciones varían y evita las 12 últimas; una evacuación no permite cambiar los pares de la ronda.
-- Daño acumulado de 4 HP efectivos al operador = puzzle cancelado y pérdida del progreso, SIN resetear el reloj del reactor.
-- Tres errores = cortocircuito; a participantes dentro de 65 bloques en modo supervivencia se les consume un tótem equipado o reciben 14 puntos base de daño. Tremorzilla obtiene Fuerza I por 45 s si fue vinculado.
-- Tiempo agotado = misma detonación + mutación persistente durante el combate (Velocidad I -> Fuerza I -> Velocidad II) + 10% recuperación de vida del jefe.
-- Las mutaciones permanecen entre rondas si el jefe vinculado sigue siendo el mismo. `/preactor boss` sobre otro jefe selecciona su propio contador de mutaciones.
-- Éxito = cancela la detonación y aplica Debilidad I por 15 s al jefe vinculado.
-- Sin World#createExplosion: la explosión del plugin no rompe bloques.
+1. En una zona separada, coloca/registra un reactor (`/preactor crear`) y crea un Tremorzilla de prueba. Mira el jefe y ejecuta `/preactor boss`. Comprueba que realmente hayas vinculado el mob correcto.
+2. Ejecuta `/preactor batalla iniciar` y `/preactor batalla estado`.
+3. Baja la vida del boss gradualmente hasta el 60 %; debería anunciar `FASE 1` y activar el reactor.
+4. Resuelve el puzzle, o provoca tres errores. Comprueba éxito o buff de daño solo si los ataques lo permiten.
+5. Baja el jefe al 25 %; debería activar `FASE 2` después del cooldown. Déjalo agotar tiempo y revisa `/preactor estado` (mutaciones) y su vida.
+6. Ejecuta `/preactor detener` al terminar.
 
-## Advertencias críticas
-- **Probar primero en un mundo de pruebas y con inventarios vacíos.** La rama sin tótem puede matar jugadores.
-- El tótem se consume de la mano secundaria en primer lugar, luego de la principal. Los tótems en el inventario NO cuentan.
-- La detonación simula el consumo de un tótem y su animación de rescate, pero **no dispara el mismo flujo de eventos que un totem vanilla**. Compatibilidad con plugins que intercepten resurrecciones requiere pruebas.
-- PotitoReactor no cancela la destrucción de terreno causada por los ataques NATIVOS de Tremorzilla.
-- Las pociones de Fuerza/Velocidad/Debilidad pueden no afectar ataques personalizados del mod (comprobar en vivo).
-- El bloque físico registrado sigue siendo un bloque normal con partículas. El **modelo 3D personalizado para ese bloque todavía no está implementado**.
-- El plugin se basa en Paper API 1.21.1 y NO se ha validado mediante arranque real en Arclight; compilar exitosamente no garantiza compatibilidad de todos los eventos.
+**Evita probar en la arena principal o con jugadores sin protección.** No se ha compilado ni probado en el Arclight del usuario todavía.
